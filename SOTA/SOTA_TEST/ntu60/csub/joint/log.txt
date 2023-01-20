@@ -1,0 +1,4 @@
+[ Thu Jun 23 01:25:54 2022 ] Load weights from results/SOTA/ntu60/csub/joint/90_18/runs-64-40064.pt.
+[ Thu Jun 23 10:26:17 2022 ] Load weights from results/SOTA/ntu60/csub/joint/90_18/runs-64-40064.pt.
+[ Thu Jun 23 10:27:06 2022 ] Load weights from results/SOTA/ntu60/csub/joint/90_18/runs-64-40064.pt.
+[ Thu Jun 23 10:27:11 2022 ] using warm up, epoch: 5

@@ -1,0 +1,5 @@
+[ Fri Jun 24 10:16:22 2022 ] Load weights from results/SOTA/ntu60/cview/bone/94_9/runs-62-36456.pt.
+[ Fri Jun 24 10:17:23 2022 ] Load weights from results/SOTA/ntu60/cview/bone/94_9/runs-62-36456.pt.
+[ Fri Jun 24 10:17:29 2022 ] using warm up, epoch: 5
+[ Fri Jun 24 10:44:15 2022 ] Load weights from results/SOTA/ntu60/cview/bone/94_9/runs-62-36456.pt.
+[ Fri Jun 24 10:44:20 2022 ] using warm up, epoch: 5

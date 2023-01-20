@@ -1,0 +1,5 @@
+[ Thu Jun 23 01:11:07 2022 ] Load weights from results/SOTA/ntu120/csub/bone/85_85/runs-62-61008.pt.
+[ Thu Jun 23 01:11:44 2022 ] Load weights from results/SOTA/ntu120/csub/bone/85_85/runs-62-61008.pt.
+[ Thu Jun 23 01:11:48 2022 ] using warm up, epoch: 5
+[ Thu Jun 23 01:12:26 2022 ] Load weights from results/SOTA/ntu120/csub/bone/85_85/runs-62-61008.pt.
+[ Thu Jun 23 01:12:31 2022 ] using warm up, epoch: 5

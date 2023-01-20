@@ -1,0 +1,4 @@
+[ Mon Jun 27 22:47:52 2022 ] Load weights from results/SOTA/ntu60/csub/bm/87_6/runs-56-35056.pt.
+[ Mon Jun 27 22:47:57 2022 ] using warm up, epoch: 5
+[ Mon Jun 27 22:48:18 2022 ] Load weights from results/SOTA/ntu60/csub/bm/87_6/runs-56-35056.pt.
+[ Mon Jun 27 22:48:23 2022 ] using warm up, epoch: 5

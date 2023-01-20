@@ -1,0 +1,14 @@
+[ Wed Jun 22 10:00:06 2022 ] Load weights from result/SOTA/kinetics/bone/ki_agcn_bone-50-107559.pt.
+[ Wed Jun 22 10:00:06 2022 ] using warm up, epoch: 0
+[ Wed Jun 22 10:06:46 2022 ] Load weights from result/SOTA/kinetics/bone/ki_agcn_bone-50-107559.pt.
+[ Wed Jun 22 10:06:46 2022 ] using warm up, epoch: 0
+[ Wed Jun 22 10:07:02 2022 ] Load weights from result/SOTA/kinetics/bone/ki_agcn_bone-50-107559.pt.
+[ Wed Jun 22 10:07:03 2022 ] using warm up, epoch: 0
+[ Wed Jun 22 10:11:36 2022 ] Load weights from result/SOTA/kinetics/bone/ki_agcn_bone-50-107559.pt.
+[ Wed Jun 22 10:11:36 2022 ] using warm up, epoch: 0
+[ Wed Jun 22 15:30:05 2022 ] Load weights from result/SOTA/kinetics/bone/ki_agcn_bone-57-122322.pt.
+[ Wed Jun 22 15:30:05 2022 ] using warm up, epoch: 0
+[ Thu Jun 23 10:42:33 2022 ] Load weights from result/SOTA/kinetics/bone/36_91/ki_agcn_bone-63-134976.pt.
+[ Thu Jun 23 10:42:33 2022 ] using warm up, epoch: 0
+[ Thu Jun 23 10:49:25 2022 ] Load weights from result/SOTA/kinetics/bone/36_91/ki_agcn_bone-63-134976.pt.
+[ Thu Jun 23 10:49:25 2022 ] using warm up, epoch: 0

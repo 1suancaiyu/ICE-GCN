@@ -1,0 +1,3 @@
+[ Thu Jun 23 01:18:02 2022 ] Load weights from results/SOTA/ntu120/cset/joint/86_93/runs-72-61272.pt.
+[ Thu Jun 23 01:18:40 2022 ] Load weights from results/SOTA/ntu120/cset/joint/86_93/runs-72-61272.pt.
+[ Thu Jun 23 01:18:45 2022 ] using warm up, epoch: 5

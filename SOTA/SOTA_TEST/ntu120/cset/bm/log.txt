@@ -1,0 +1,2 @@
+[ Sat Jul  2 13:45:17 2022 ] Load weights from results/SOTA/ntu120/cset/bm/runs-63-53613.pt.
+[ Sat Jul  2 13:45:20 2022 ] using warm up, epoch: 5

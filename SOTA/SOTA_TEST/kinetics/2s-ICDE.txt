@@ -1,0 +1,4 @@
+Top1: 0.3880076783188523 
+Top5: 0.6182562133764397
+
+python ensemble.py --datasets kinetics

@@ -1,0 +1,4 @@
+[ Wed Jun 22 09:48:45 2022 ] Load weights from result/SOTA/kinetics/joint/epoch-57-109779.pt.
+[ Wed Jun 22 09:48:45 2022 ] using warm up, epoch: 0
+[ Wed Jun 22 09:49:54 2022 ] Load weights from result/SOTA/kinetics/joint/epoch-57-109779.pt.
+[ Wed Jun 22 09:49:54 2022 ] using warm up, epoch: 0
