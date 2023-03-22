@@ -192,6 +192,55 @@ class unit_tcn(nn.Module):
         x = self.bn(self.conv(x))
         return x
 
+class SCE(nn.Module):
+    def __init__(self, in_channels, num_jpts=25, redu = 16):
+        super(SCE, self).__init__()
+        ker_jpt = num_jpts - 1 if not num_jpts % 2 else num_jpts
+        pad = (ker_jpt - 1) // 2
+        redu_channels = in_channels // redu
+        self.temporal_pooling = nn.AdaptiveAvgPool2d((1,None))
+        self.conv_spatial = nn.Conv1d(in_channels, redu_channels, ker_jpt, padding=pad)
+        self.relu = nn.ReLU()
+        self.conv_expand = nn.Conv1d(redu_channels, in_channels, 1)
+        self.sigmoid = nn.Sigmoid()
+        print(">>>>>>>>>>>>>>>>>>  SCE")
+    def forward(self, x):
+        x_origin = x
+        x = self.temporal_pooling(x)
+        x = x.squeeze(-2)
+        x = self.conv_spatial(x)
+        x = self.relu(x)
+        x = self.conv_expand(x)
+        x = x.unsqueeze(-2)
+        sce_weights = self.sigmoid(x)
+        x = x_origin * sce_weights + x_origin
+        return x
+
+class TCE(nn.Module):
+    def __init__(self, in_channels, redu=16, receptive_field=1):
+        super(TCE, self).__init__()
+        redu_channels = in_channels // redu
+        pad = (receptive_field-1) // 2
+        self.spatial_pooling = nn.AdaptiveAvgPool2d((None,1))
+        self.relu = nn.ReLU()
+        self.conv_temporal = nn.Conv1d(in_channels=in_channels, out_channels=redu_channels, kernel_size=receptive_field, padding=pad, bias=False, groups=1)
+        self.conv_expand = nn.Conv1d(in_channels=redu_channels, out_channels=in_channels, kernel_size=1)
+        self.sigmoid = nn.Sigmoid()
+        self.bn = nn.BatchNorm2d(in_channels)
+        print(">>>>>>  TCE", "receptive_field>>>", receptive_field)
+
+    def forward(self, x):
+        x_origin = x
+        x = self.spatial_pooling(x)
+        x = x.squeeze(-1)
+        x = self.conv_temporal(x)
+        _,c_r,_ = x.size()
+        x = self.relu(x)
+        x = self.conv_expand(x)
+        x = x.unsqueeze(-1)
+        x_temporal_score = self.sigmoid(x)
+        x = x_origin * x_temporal_score + x_origin
+        return x
 
 class unit_gcn(nn.Module):
     def __init__(self, in_channels, out_channels, A, coff_embedding=4, adaptive=True, residual=True):
@@ -231,18 +280,10 @@ class unit_gcn(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 bn_init(m, 1)
         bn_init(self.bn, 1e-6)
-
-    def L2_norm(self, A):
-        # A:N,V,V
-        A_norm = torch.norm(A, 2, dim=1, keepdim=True) + 1e-4  # N,1,V
-        A = A / A_norm
-        return A
-
     def forward(self, x):
         y = None
         if self.adaptive:
             A = self.PA
-            A = self.L2_norm(A)
         else:
             A = self.A.cuda(x.get_device())
         for i in range(self.num_subset):
@@ -252,9 +293,117 @@ class unit_gcn(nn.Module):
         y += self.down(x)
         y = self.relu(y)
 
+        return y
+
+class SCE_unit_gcn(nn.Module):
+    def __init__(self, in_channels, out_channels, A, coff_embedding=4, adaptive=True, residual=True):
+        super(SCE_unit_gcn, self).__init__()
+        inter_channels = out_channels // coff_embedding
+        self.inter_c = inter_channels
+        self.out_c = out_channels
+        self.in_c = in_channels
+        self.adaptive = adaptive
+        self.num_subset = A.shape[0]
+        self.convs = nn.ModuleList()
+        for i in range(self.num_subset):
+            self.convs.append(CTRGC(in_channels, out_channels))
+
+        if residual:
+            if in_channels != out_channels:
+                self.down = nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels, 1),
+                    nn.BatchNorm2d(out_channels)
+                )
+            else:
+                self.down = lambda x: x
+        else:
+            self.down = lambda x: 0
+        if self.adaptive:
+            self.PA = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
+
+        self.Ak = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
+        self.alpha = nn.Parameter(torch.zeros(1))
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.soft = nn.Softmax(-2)
+        self.relu = nn.ReLU(inplace=True)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                conv_init(m)
+            elif isinstance(m, nn.BatchNorm2d):
+                bn_init(m, 1)
+        bn_init(self.bn, 1e-6)
+        self.sce = SCE(out_channels)
+    def forward(self, x):
+        y = None
+        if self.adaptive:
+            # self.Ak = self.Ak.cuda(self.PA.get_device())
+            A = self.PA + self.Ak
+        for i in range(self.num_subset):
+            z = self.convs[i](x, A[i], self.alpha)
+            y = z + y if y is not None else z
+        y = self.bn(y)
+        y += self.down(x)
+        y = self.relu(y)
+        y = self.sce(y)
 
         return y
 
+class STCE_unit_gcn(nn.Module):
+    def __init__(self, in_channels, out_channels, A, coff_embedding=4, adaptive=True, residual=True):
+        super(STCE_unit_gcn, self).__init__()
+        inter_channels = out_channels // coff_embedding
+        self.inter_c = inter_channels
+        self.out_c = out_channels
+        self.in_c = in_channels
+        self.adaptive = adaptive
+        self.num_subset = A.shape[0]
+        self.convs = nn.ModuleList()
+        for i in range(self.num_subset):
+            self.convs.append(CTRGC(in_channels, out_channels))
+
+        if residual:
+            if in_channels != out_channels:
+                self.down = nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels, 1),
+                    nn.BatchNorm2d(out_channels)
+                )
+            else:
+                self.down = lambda x: x
+        else:
+            self.down = lambda x: 0
+        if self.adaptive:
+            self.PA = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
+
+        self.Ak = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
+        self.alpha = nn.Parameter(torch.zeros(1))
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.soft = nn.Softmax(-2)
+        self.relu = nn.ReLU(inplace=True)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                conv_init(m)
+            elif isinstance(m, nn.BatchNorm2d):
+                bn_init(m, 1)
+        bn_init(self.bn, 1e-6)
+        self.sce = SCE(out_channels)
+        self.tce = TCE(out_channels)
+    def forward(self, x):
+        y = None
+        if self.adaptive:
+            # self.Ak = self.Ak.cuda(self.PA.get_device())
+            A = self.PA + self.Ak
+
+        for i in range(self.num_subset):
+            z = self.convs[i](x, A[i], self.alpha)
+            y = z + y if y is not None else z
+        y = self.bn(y)
+        y += self.down(x)
+        y = self.relu(y)
+        y = self.tce(self.sce(y))
+
+        return y
 
 class TCN_GCN_unit(nn.Module):
     def __init__(self, in_channels, out_channels, A, stride=1, residual=True, adaptive=True, kernel_size=5, dilations=[1,2]):
@@ -276,6 +425,45 @@ class TCN_GCN_unit(nn.Module):
         y = self.relu(self.tcn1(self.gcn1(x)) + self.residual(x))
         return y
 
+class SCE_TCN_GCN_unit(nn.Module):
+    def __init__(self, in_channels, out_channels, A, stride=1, residual=True, adaptive=True, kernel_size=5, dilations=[1,2]):
+        super(SCE_TCN_GCN_unit, self).__init__()
+        self.gcn1 = SCE_unit_gcn(in_channels, out_channels, A, adaptive=adaptive)
+        self.tcn1 = MultiScale_TemporalConv(out_channels, out_channels, kernel_size=kernel_size, stride=stride, dilations=dilations,
+                                            residual=False)
+        self.relu = nn.ReLU(inplace=True)
+        if not residual:
+            self.residual = lambda x: 0
+
+        elif (in_channels == out_channels) and (stride == 1):
+            self.residual = lambda x: x
+
+        else:
+            self.residual = unit_tcn(in_channels, out_channels, kernel_size=1, stride=stride)
+
+    def forward(self, x):
+        y = self.relu(self.tcn1(self.gcn1(x)) + self.residual(x))
+        return y
+
+class STCE_TCN_GCN_unit(nn.Module):
+    def __init__(self, in_channels, out_channels, A, stride=1, residual=True, adaptive=True, kernel_size=5, dilations=[1,2]):
+        super(STCE_TCN_GCN_unit, self).__init__()
+        self.gcn1 = STCE_unit_gcn(in_channels, out_channels, A, adaptive=adaptive)
+        self.tcn1 = MultiScale_TemporalConv(out_channels, out_channels, kernel_size=kernel_size, stride=stride, dilations=dilations,
+                                            residual=False)
+        self.relu = nn.ReLU(inplace=True)
+        if not residual:
+            self.residual = lambda x: 0
+
+        elif (in_channels == out_channels) and (stride == 1):
+            self.residual = lambda x: x
+
+        else:
+            self.residual = unit_tcn(in_channels, out_channels, kernel_size=1, stride=stride)
+
+    def forward(self, x):
+        y = self.relu(self.tcn1(self.gcn1(x)) + self.residual(x))
+        return y
 
 class Model(nn.Module):
     def __init__(self, num_class=60, num_point=25, num_person=2, graph=None, graph_args=dict(), in_channels=3,
@@ -295,16 +483,16 @@ class Model(nn.Module):
         self.data_bn = nn.BatchNorm1d(num_person * in_channels * num_point)
 
         base_channel = 64
-        self.l1 = TCN_GCN_unit(in_channels, base_channel, A, residual=False, adaptive=adaptive)
-        self.l2 = TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
-        self.l3 = TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
-        self.l4 = TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
-        self.l5 = TCN_GCN_unit(base_channel, base_channel*2, A, stride=2, adaptive=adaptive)
-        self.l6 = TCN_GCN_unit(base_channel*2, base_channel*2, A, adaptive=adaptive)
-        self.l7 = TCN_GCN_unit(base_channel*2, base_channel*2, A, adaptive=adaptive)
-        self.l8 = TCN_GCN_unit(base_channel*2, base_channel*4, A, stride=2, adaptive=adaptive)
-        self.l9 = TCN_GCN_unit(base_channel*4, base_channel*4, A, adaptive=adaptive)
-        self.l10 = TCN_GCN_unit(base_channel*4, base_channel*4, A, adaptive=adaptive)
+        self.l1 = STCE_TCN_GCN_unit(in_channels, base_channel, A, residual=False, adaptive=adaptive)
+        self.l2 = SCE_TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
+        self.l3 = SCE_TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
+        self.l4 = SCE_TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
+        self.l5 = SCE_TCN_GCN_unit(base_channel, base_channel*2, A, stride=2, adaptive=adaptive)
+        self.l6 = SCE_TCN_GCN_unit(base_channel*2, base_channel*2, A, adaptive=adaptive)
+        self.l7 = SCE_TCN_GCN_unit(base_channel*2, base_channel*2, A, adaptive=adaptive)
+        self.l8 = SCE_TCN_GCN_unit(base_channel*2, base_channel*4, A, stride=2, adaptive=adaptive)
+        self.l9 = SCE_TCN_GCN_unit(base_channel*4, base_channel*4, A, adaptive=adaptive)
+        self.l10 = SCE_TCN_GCN_unit(base_channel*4, base_channel*4, A, adaptive=adaptive)
 
         self.fc = nn.Linear(base_channel*4, num_class)
         nn.init.normal_(self.fc.weight, 0, math.sqrt(2. / num_class))

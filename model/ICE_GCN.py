@@ -1,8 +1,3 @@
-"""
-ICDE-GCN
-remove Ap
-"""
-
 import math
 import pdb
 
@@ -152,9 +147,9 @@ class MultiScale_TemporalConv(nn.Module):
         return out
 
 
-class CAs_CTR_GCN(nn.Module):
+class CTRGC(nn.Module):
     def __init__(self, in_channels, out_channels, rel_reduction=8, mid_reduction=1):
-        super(CAs_CTR_GCN, self).__init__()
+        super(CTRGC, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         if in_channels == 3 or in_channels == 9:
@@ -174,12 +169,12 @@ class CAs_CTR_GCN(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 bn_init(m, 1)
 
-    def forward(self, x, ApAl=None, alpha=1):
-        v1, v2, x = self.conv1(x).mean(-2), self.conv2(x).mean(-2), self.conv3(x)
-        CAs = self.tanh(v1.unsqueeze(-1) - v2.unsqueeze(-2))
-        refined_A = self.conv4(CAs) * alpha + (ApAl.unsqueeze(0).unsqueeze(0) if ApAl is not None else 0)  # N,C,V,V
-        x_gcn = torch.einsum('ncuv,nctv->nctu', refined_A, x)
-        return x_gcn
+    def forward(self, x, A=None, alpha=1):
+        x1, x2, x3 = self.conv1(x).mean(-2), self.conv2(x).mean(-2), self.conv3(x)
+        x1 = self.tanh(x1.unsqueeze(-1) - x2.unsqueeze(-2))
+        x1 = self.conv4(x1) * alpha + (A.unsqueeze(0).unsqueeze(0) if A is not None else 0)  # N,C,V,V
+        x1 = torch.einsum('ncuv,nctv->nctu', x1, x3)
+        return x1
 
 class unit_tcn(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=9, stride=1):
@@ -247,19 +242,18 @@ class TCE(nn.Module):
         x = x_origin * x_temporal_score + x_origin
         return x
 
-
-class SCE_unit_gcn(nn.Module):
-    def __init__(self, in_channels, out_channels, Ap, coff_embedding=4, adaptive=True, residual=True):
-        super(SCE_unit_gcn, self).__init__()
+class unit_gcn(nn.Module):
+    def __init__(self, in_channels, out_channels, A, coff_embedding=4, adaptive=True, residual=True):
+        super(unit_gcn, self).__init__()
         inter_channels = out_channels // coff_embedding
         self.inter_c = inter_channels
         self.out_c = out_channels
         self.in_c = in_channels
         self.adaptive = adaptive
-        self.num_subset = Ap.shape[0]
+        self.num_subset = A.shape[0]
         self.convs = nn.ModuleList()
         for i in range(self.num_subset):
-            self.convs.append(CAs_CTR_GCN(in_channels, out_channels))
+            self.convs.append(CTRGC(in_channels, out_channels))
 
         if residual:
             if in_channels != out_channels:
@@ -272,9 +266,62 @@ class SCE_unit_gcn(nn.Module):
         else:
             self.down = lambda x: 0
         if self.adaptive:
-            self.Al = nn.Parameter(torch.from_numpy(Ap.astype(np.float32)))
+            self.PA = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
+        else:
+            self.A = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
+        self.alpha = nn.Parameter(torch.zeros(1))
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.soft = nn.Softmax(-2)
+        self.relu = nn.ReLU(inplace=True)
 
-        self.Ap = Variable(torch.from_numpy(Ap.astype(np.float32)), requires_grad=False)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                conv_init(m)
+            elif isinstance(m, nn.BatchNorm2d):
+                bn_init(m, 1)
+        bn_init(self.bn, 1e-6)
+    def forward(self, x):
+        y = None
+        if self.adaptive:
+            A = self.PA
+        else:
+            A = self.A.cuda(x.get_device())
+        for i in range(self.num_subset):
+            z = self.convs[i](x, A[i], self.alpha)
+            y = z + y if y is not None else z
+        y = self.bn(y)
+        y += self.down(x)
+        y = self.relu(y)
+
+        return y
+
+class SCE_unit_gcn(nn.Module):
+    def __init__(self, in_channels, out_channels, A, coff_embedding=4, adaptive=True, residual=True):
+        super(SCE_unit_gcn, self).__init__()
+        inter_channels = out_channels // coff_embedding
+        self.inter_c = inter_channels
+        self.out_c = out_channels
+        self.in_c = in_channels
+        self.adaptive = adaptive
+        self.num_subset = A.shape[0]
+        self.convs = nn.ModuleList()
+        for i in range(self.num_subset):
+            self.convs.append(CTRGC(in_channels, out_channels))
+
+        if residual:
+            if in_channels != out_channels:
+                self.down = nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels, 1),
+                    nn.BatchNorm2d(out_channels)
+                )
+            else:
+                self.down = lambda x: x
+        else:
+            self.down = lambda x: 0
+        if self.adaptive:
+            self.PA = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
+
+        self.Ak = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
         self.alpha = nn.Parameter(torch.zeros(1))
         self.bn = nn.BatchNorm2d(out_channels)
         self.soft = nn.Softmax(-2)
@@ -290,10 +337,10 @@ class SCE_unit_gcn(nn.Module):
     def forward(self, x):
         y = None
         if self.adaptive:
-            self.Ap = self.Ap.cuda(self.Al.get_device())
-            ApAl = self.Al + self.Ap
+            # self.Ak = self.Ak.cuda(self.PA.get_device())
+            A = self.PA + self.Ak
         for i in range(self.num_subset):
-            z = self.convs[i](x, ApAl[i], self.alpha)
+            z = self.convs[i](x, A[i], self.alpha)
             y = z + y if y is not None else z
         y = self.bn(y)
         y += self.down(x)
@@ -302,18 +349,18 @@ class SCE_unit_gcn(nn.Module):
 
         return y
 
-class ICDE_unit_gcn(nn.Module):
-    def __init__(self, in_channels, out_channels, Ap, coff_embedding=4, adaptive=True, residual=True):
-        super(ICDE_unit_gcn, self).__init__()
+class STCE_unit_gcn(nn.Module):
+    def __init__(self, in_channels, out_channels, A, coff_embedding=4, adaptive=True, residual=True):
+        super(STCE_unit_gcn, self).__init__()
         inter_channels = out_channels // coff_embedding
         self.inter_c = inter_channels
         self.out_c = out_channels
         self.in_c = in_channels
         self.adaptive = adaptive
-        self.num_subset = Ap.shape[0]
+        self.num_subset = A.shape[0]
         self.convs = nn.ModuleList()
         for i in range(self.num_subset):
-            self.convs.append(CAs_CTR_GCN(in_channels, out_channels))
+            self.convs.append(CTRGC(in_channels, out_channels))
 
         if residual:
             if in_channels != out_channels:
@@ -326,9 +373,9 @@ class ICDE_unit_gcn(nn.Module):
         else:
             self.down = lambda x: 0
         if self.adaptive:
-            self.Al = nn.Parameter(torch.from_numpy(Ap.astype(np.float32)))
+            self.PA = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
 
-        self.Ap = Variable(torch.from_numpy(Ap.astype(np.float32)), requires_grad=False)
+        self.Ak = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
         self.alpha = nn.Parameter(torch.zeros(1))
         self.bn = nn.BatchNorm2d(out_channels)
         self.soft = nn.Softmax(-2)
@@ -345,13 +392,11 @@ class ICDE_unit_gcn(nn.Module):
     def forward(self, x):
         y = None
         if self.adaptive:
-            self.Ap = self.Ap.cuda(self.Al.get_device())
-            # AlAp = self.Al + self.Ap
-            # remove Ap
-            AlAp = self.Al
+            # self.Ak = self.Ak.cuda(self.PA.get_device())
+            A = self.PA + self.Ak
 
         for i in range(self.num_subset):
-            z = self.convs[i](x, AlAp[i], self.alpha)
+            z = self.convs[i](x, A[i], self.alpha)
             y = z + y if y is not None else z
         y = self.bn(y)
         y += self.down(x)
@@ -360,11 +405,10 @@ class ICDE_unit_gcn(nn.Module):
 
         return y
 
-
-class SCE_TCN_GCN_unit(nn.Module):
-    def __init__(self, in_channels, out_channels, Ap, stride=1, residual=True, adaptive=True, kernel_size=5, dilations=[1,2]):
-        super(SCE_TCN_GCN_unit, self).__init__()
-        self.gcn1 = SCE_unit_gcn(in_channels, out_channels, Ap, adaptive=adaptive)
+class TCN_GCN_unit(nn.Module):
+    def __init__(self, in_channels, out_channels, A, stride=1, residual=True, adaptive=True, kernel_size=5, dilations=[1,2]):
+        super(TCN_GCN_unit, self).__init__()
+        self.gcn1 = unit_gcn(in_channels, out_channels, A, adaptive=adaptive)
         self.tcn1 = MultiScale_TemporalConv(out_channels, out_channels, kernel_size=kernel_size, stride=stride, dilations=dilations,
                                             residual=False)
         self.relu = nn.ReLU(inplace=True)
@@ -381,10 +425,30 @@ class SCE_TCN_GCN_unit(nn.Module):
         y = self.relu(self.tcn1(self.gcn1(x)) + self.residual(x))
         return y
 
-class ICDE_TCN_GCN_unit(nn.Module):
-    def __init__(self, in_channels, out_channels, Ap, stride=1, residual=True, adaptive=True, kernel_size=5, dilations=[1,2]):
-        super(ICDE_TCN_GCN_unit, self).__init__()
-        self.gcn1 = ICDE_unit_gcn(in_channels, out_channels, Ap, adaptive=adaptive)
+class SCE_TCN_GCN_unit(nn.Module):
+    def __init__(self, in_channels, out_channels, A, stride=1, residual=True, adaptive=True, kernel_size=5, dilations=[1,2]):
+        super(SCE_TCN_GCN_unit, self).__init__()
+        self.gcn1 = SCE_unit_gcn(in_channels, out_channels, A, adaptive=adaptive)
+        self.tcn1 = MultiScale_TemporalConv(out_channels, out_channels, kernel_size=kernel_size, stride=stride, dilations=dilations,
+                                            residual=False)
+        self.relu = nn.ReLU(inplace=True)
+        if not residual:
+            self.residual = lambda x: 0
+
+        elif (in_channels == out_channels) and (stride == 1):
+            self.residual = lambda x: x
+
+        else:
+            self.residual = unit_tcn(in_channels, out_channels, kernel_size=1, stride=stride)
+
+    def forward(self, x):
+        y = self.relu(self.tcn1(self.gcn1(x)) + self.residual(x))
+        return y
+
+class STCE_TCN_GCN_unit(nn.Module):
+    def __init__(self, in_channels, out_channels, A, stride=1, residual=True, adaptive=True, kernel_size=5, dilations=[1,2]):
+        super(STCE_TCN_GCN_unit, self).__init__()
+        self.gcn1 = STCE_unit_gcn(in_channels, out_channels, A, adaptive=adaptive)
         self.tcn1 = MultiScale_TemporalConv(out_channels, out_channels, kernel_size=kernel_size, stride=stride, dilations=dilations,
                                             residual=False)
         self.relu = nn.ReLU(inplace=True)
@@ -412,23 +476,23 @@ class Model(nn.Module):
             Graph = import_class(graph)
             self.graph = Graph(**graph_args)
 
-        Ap = self.graph.A # 3,25,25
+        A = self.graph.A # 3,25,25
 
         self.num_class = num_class
         self.num_point = num_point
         self.data_bn = nn.BatchNorm1d(num_person * in_channels * num_point)
 
         base_channel = 64
-        self.l1 = ICDE_TCN_GCN_unit(in_channels, base_channel, Ap, residual=False, adaptive=adaptive)
-        self.l2 = SCE_TCN_GCN_unit(base_channel, base_channel, Ap, adaptive=adaptive)
-        self.l3 = SCE_TCN_GCN_unit(base_channel, base_channel, Ap, adaptive=adaptive)
-        self.l4 = SCE_TCN_GCN_unit(base_channel, base_channel, Ap, adaptive=adaptive)
-        self.l5 = SCE_TCN_GCN_unit(base_channel, base_channel*2, Ap, stride=2, adaptive=adaptive)
-        self.l6 = SCE_TCN_GCN_unit(base_channel*2, base_channel*2, Ap, adaptive=adaptive)
-        self.l7 = SCE_TCN_GCN_unit(base_channel*2, base_channel*2, Ap, adaptive=adaptive)
-        self.l8 = SCE_TCN_GCN_unit(base_channel*2, base_channel*4, Ap, stride=2, adaptive=adaptive)
-        self.l9 = SCE_TCN_GCN_unit(base_channel*4, base_channel*4, Ap, adaptive=adaptive)
-        self.l10 = SCE_TCN_GCN_unit(base_channel*4, base_channel*4, Ap, adaptive=adaptive)
+        self.l1 = STCE_TCN_GCN_unit(in_channels, base_channel, A, residual=False, adaptive=adaptive)
+        self.l2 = STCE_TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
+        self.l3 = STCE_TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
+        self.l4 = STCE_TCN_GCN_unit(base_channel, base_channel, A, adaptive=adaptive)
+        self.l5 = STCE_TCN_GCN_unit(base_channel, base_channel*2, A, stride=2, adaptive=adaptive)
+        self.l6 = STCE_TCN_GCN_unit(base_channel*2, base_channel*2, A, adaptive=adaptive)
+        self.l7 = STCE_TCN_GCN_unit(base_channel*2, base_channel*2, A, adaptive=adaptive)
+        self.l8 = STCE_TCN_GCN_unit(base_channel*2, base_channel*4, A, stride=2, adaptive=adaptive)
+        self.l9 = STCE_TCN_GCN_unit(base_channel*4, base_channel*4, A, adaptive=adaptive)
+        self.l10 = STCE_TCN_GCN_unit(base_channel*4, base_channel*4, A, adaptive=adaptive)
 
         self.fc = nn.Linear(base_channel*4, num_class)
         nn.init.normal_(self.fc.weight, 0, math.sqrt(2. / num_class))

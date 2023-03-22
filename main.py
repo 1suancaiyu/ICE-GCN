@@ -202,7 +202,7 @@ def get_parser():
 
 
 class Processor():
-    """ 
+    """
         Processor for Skeleton-based Action Recgnition
     """
 
