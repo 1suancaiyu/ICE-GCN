@@ -12,9 +12,11 @@ channel dimension. ICE, composed of a channel-wise temporal excitation
 (CTE) and a channel-wise spatial excitation (CSE), can be inserted into any
 existing graph convolutional networks as a plug-and-play module to enhance
 the performances notably without light computational cost.
+
 • We systematically investigate the strategies of graphs and argue that complementary topology is necessary. Three adjacency sub-matrices Ap, Al and
 As are combined to construct the graph topology. This simple but efficient scheme notably improves the performance, which solves the dilemma
 between adaptation and too large of a searching space.
+
 • Finally, together equipped with ICE, an interactional channel excited
 graph convolutional network with complementary topology (ICE-GCN) is
 proposed, extensive experiments conducted on three large-scale datasets,
