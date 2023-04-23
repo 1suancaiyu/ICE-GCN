@@ -2,6 +2,9 @@
 This repo is the official implementation for [ICE-GCN: An interactional channel excitation enhanced graph convolutional network
 for skeleton-based action recognition]. The paper is accepted to Machine Vision and Applications.
 
+![Fig1_overview](img/README/Fig1_overview.png)
+
+
 An interactional channel excited graph convolutional network with complementary topology (ICE-GCN) is proposed. Extensive experiments and ablation studies demonstrate the necessity of the ICE module and the complementary topology scheme. Compared with previous works, the main contributions of our work can be summarized as follows:
 
 • Compared with the existing attention mechanisms which ignore the crossdimensional interaction, our interactional channel excitation (ICE) module
